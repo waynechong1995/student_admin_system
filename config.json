@@ -1,0 +1,9 @@
+{
+  "sequelize": {
+    "host": "studentadmin.c1sw2phg2b33.us-east-2.rds.amazonaws.com",
+    "username": "root",
+    "password": "apple123",
+    "db": "studentadmin",
+    "testdb": "studentadmin-test"
+  }
+}
