@@ -31,56 +31,63 @@ module.exports = {
             }
 
             async function registerStudents(teacher) {
-                async function resolveStudents() {
-                    async function resolveStudent(studentEmail) {
-                        async function createStudent() {
-                            let newStudent = {
-                                email: studentEmail,
-                                timestamp_created: currentTs,
-                                timestamp_updated: currentTs
-                            };
-                            newStudent = await db.student.create(newStudent);
-                            return newStudent.toJSON();
+                let transaction = await db.sequelize.transaction();
+                try {
+                    async function resolveStudents() {
+                        async function resolveStudent(studentEmail) {
+                            async function createStudent() {
+                                let newStudent = {
+                                    email: studentEmail,
+                                    timestamp_created: currentTs,
+                                    timestamp_updated: currentTs
+                                };
+                                newStudent = await db.student.create(newStudent, { transaction });
+                                return newStudent.toJSON();
+                            }
+
+                            let foundStudent = await db.student.findOne({
+                                where: {email: studentEmail, deleted: 0},
+                            });
+                            if (!foundStudent) foundStudent = await createStudent();
+                            return foundStudent;
                         }
 
-                        let foundStudent = await db.student.findOne({
-                            where: {email: studentEmail, deleted: 0},
-                        });
-                        if (!foundStudent) foundStudent = await createStudent();
-                        return foundStudent;
-                    }
-                    return await Promise.map(studentEmails, (student) => resolveStudent(student));
-                }
-
-                async function resolveRegistrations(students) {
-                    async function getDuplicateEntries() {
-                        const studentIds = _.map(students, 'id');
-                        const duplicateEntries = await db.class.findAll({
-                            where: {
-                                teacherid: teacher.id,
-                                studentid: {$in: studentIds},
-                                deleted: 0
-                            },
-                        });
-                        return _.map(_.toJSON(duplicateEntries), 'studentid');
+                        return await Promise.map(studentEmails, (student) => resolveStudent(student));
                     }
 
-                    const duplicateStudentIds = await getDuplicateEntries();
-                    const newStudentEntries =
-                        _.filter(students, student => !_.includes(duplicateStudentIds, student.id));
+                    async function resolveRegistrations(students) {
+                        async function getDuplicateEntries() {
+                            const studentIds = _.map(students, 'id');
+                            const duplicateEntries = await db.class.findAll({
+                                where: {
+                                    teacherid: teacher.id,
+                                    studentid: {$in: studentIds},
+                                    deleted: 0
+                                },
+                            });
+                            return _.map(_.toJSON(duplicateEntries), 'studentid');
+                        }
 
-                    const query = _.map(newStudentEntries, entry => ({
-                        teacherid: teacher.id,
-                        studentid: entry.id,
-                        timestamp_created: currentTs,
-                        timestamp_updated: currentTs,
-                    }));
+                        const duplicateStudentIds = await getDuplicateEntries();
+                        const newStudentEntries =
+                            _.filter(students, student => !_.includes(duplicateStudentIds, student.id));
 
-                    await db.class.bulkCreate(query);
+                        const query = _.map(newStudentEntries, entry => ({
+                            teacherid: teacher.id,
+                            studentid: entry.id,
+                            timestamp_created: currentTs,
+                            timestamp_updated: currentTs,
+                        }));
+
+                        await db.class.bulkCreate(query, { transaction });
+                    }
+
+                    await resolveStudents()
+                        .then(resolveRegistrations);
+                } catch (e) {
+                    if (e) await transaction.rollback();
+                    throw new Error(e);
                 }
-
-                await resolveStudents()
-                    .then(resolveRegistrations);
             }
 
             return resolveTeacher()

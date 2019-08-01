@@ -8,11 +8,11 @@ function sendError(res, errors) {
 
 module.exports = function (router) {
   router.route('/register').post([
-      body('teacher').exists(),
-      body('teacher').isEmail(),
-      body('students').exists(),
-      body('students').isArray(),
-      body('students.*').isEmail(),
+      body('teacher').exists().withMessage('Missing "teacher" param'),
+      body('teacher').isEmail().withMessage('Invalid "teacher" param, should be email'),
+      body('students').exists().withMessage('Missing "students" param'),
+      body('students').isArray().withMessage('Invalid "students" param, should be array'),
+      body('students.*').isEmail().withMessage('Invalid "students" param, should be email'),
   ], (req, res) => {
       const errors = validationResult(req);
       if (!errors.isEmpty()) sendError(res, errors);
@@ -20,7 +20,7 @@ module.exports = function (router) {
   });
 
   router.route('/commonstudents').get([
-      query('teacher.*').isEmail(),
+      query('teacher.*').isEmail().withMessage('Invalid "teacher" param, should be email'),
   ], (req, res) => {
       const errors = validationResult(req);
       if (!errors.isEmpty()) sendError(res, errors);
@@ -28,21 +28,23 @@ module.exports = function (router) {
   });
 
   router.route('/suspend').post([
-      body('student').exists(),
-      body('student').isEmail(),
+      body('student').exists().withMessage('Missing "student" param'),
+      body('student').isEmail().withMessage('Invalid "student" param, should be email'),
   ], (req, res) => {
       const errors = validationResult(req);
       if (!errors.isEmpty()) sendError(res, errors);
       else admin.suspend(req, res);
-  });
+});
 
   router.route('/retrievefornotifications').post([
-      body('teacher').exists(),
-      body('teacher').isEmail(),
-      body('notification').exists(),
-      body('notification').isString(),
+      body('teacher').exists().withMessage('Missing "teacher" param'),
+      body('teacher').isEmail().withMessage('Invalid "teacher" param, should be email'),
+      body('notification').exists().withMessage('Missing "notification" param'),
+      body('notification').isString().withMessage('Invalid "notification" param, should be a string'),
       ],
       (req, res) => {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) sendError(res, errors);
       admin.retrievefornotifications(req, res);
   });
 };
