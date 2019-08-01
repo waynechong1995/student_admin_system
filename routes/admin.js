@@ -83,7 +83,8 @@ module.exports = {
                     }
 
                     await resolveStudents()
-                        .then(resolveRegistrations);
+                        .then(resolveRegistrations)
+                        .then(async () => await transaction.commit())
                 } catch (e) {
                     if (e) await transaction.rollback();
                     throw new Error(e);
