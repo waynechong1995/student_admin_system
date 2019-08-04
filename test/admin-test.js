@@ -87,7 +87,6 @@ describe('/api/admin', () => {
                 .expect('Content-Type', /json/)
                 .expect(204)
                 .end((err, res) => {
-
                     expect(res.body.students).to.exist;
                     expect(res.body.students).to.be.an('array');
                     _.each(res.body.students, (student) => {
@@ -100,12 +99,7 @@ describe('/api/admin', () => {
         });
 
         it('should return common students belonged to teachers', (done) => {
-            const expectedStudentEmails = [
-                'common_student1@gmail.com',
-                'student_only_under_teacherken1@gmail.com',
-                'student_only_under_teacherken2@gmail.com',
-                'student_only_under_teacherjoe@gmail.com',
-            ];
+            const expectedStudentEmails = ['common_student1@gmail.com'];
             const queryString = 'teacher=teacherken@gmail.com&teacher=teacherjoe@gmail.com';
             supertest(app).get('/api/commonstudents')
                 .set('Accept', 'application/json')

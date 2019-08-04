@@ -10,96 +10,45 @@ module.exports = {
         const studentEmails = req.body.students;
         const currentTs = moment().unix();
 
-        async function registerStudent() {
-            async function resolveTeacher() {
-                async function createTeacher() {
-                    let newTeacher = {
-                        email: teacherEmail,
-                        timestamp_created: currentTs,
-                        timestamp_updated: currentTs,
-                    };
-                    newTeacher = await db.teacher.create(newTeacher);
-                    return newTeacher.toJSON();
-                }
-
-                let foundTeacher = await db.teacher.findOne({
+        async function registerStudents() {
+            const transaction = await db.sequelize.transaction();
+            try {
+                const resolveTeacher = () => db.teacher.findOrCreate({
                     where: {email: teacherEmail, deleted: 0},
+                    defaults: {timestamp_created: currentTs, timestamp_updated: currentTs,}
+                }).then(teacherData =>  teacherData[0]);
+
+                const resolveStudents = () => Promise.map(studentEmails, (studentEmail) => {
+                    return db.student.findOrCreate({
+                        where: {email: studentEmail, deleted: 0},
+                        defaults: {timestamp_created: currentTs, timestamp_updated: currentTs,}
+                    }).then(studentData =>  studentData[0]);
+
                 });
 
-                if (!foundTeacher) foundTeacher = await createTeacher();
-                return foundTeacher;
+                const data = await Promise.all([resolveTeacher(), resolveStudents()] );
+                const teacher = data[0];
+                const students = data[1];
+
+                await Promise.map(students, (student) => {
+                    return db.class.findOrCreate({
+                        where: {teacherid: teacher.id, studentid: student.id, deleted: 0},
+                        defaults: {timestamp_created: currentTs, timestamp_updated: currentTs,}
+                    });
+                });
+
+                await transaction.commit();
+            } catch (e) {
+                await transaction.rollback();
+                throw new Error(e);
             }
-
-            async function registerStudents(teacher) {
-                let transaction = await db.sequelize.transaction();
-                try {
-                    async function resolveStudents() {
-                        async function resolveStudent(studentEmail) {
-                            async function createStudent() {
-                                let newStudent = {
-                                    email: studentEmail,
-                                    timestamp_created: currentTs,
-                                    timestamp_updated: currentTs
-                                };
-                                newStudent = await db.student.create(newStudent, { transaction });
-                                return newStudent.toJSON();
-                            }
-
-                            let foundStudent = await db.student.findOne({
-                                where: {email: studentEmail, deleted: 0},
-                            });
-                            if (!foundStudent) foundStudent = await createStudent();
-                            return foundStudent;
-                        }
-
-                        return await Promise.map(studentEmails, (student) => resolveStudent(student));
-                    }
-
-                    async function resolveRegistrations(students) {
-                        async function getDuplicateEntries() {
-                            const studentIds = _.map(students, 'id');
-                            const duplicateEntries = await db.class.findAll({
-                                where: {
-                                    teacherid: teacher.id,
-                                    studentid: {$in: studentIds},
-                                    deleted: 0
-                                },
-                            });
-                            return _.map(_.toJSON(duplicateEntries), 'studentid');
-                        }
-
-                        const duplicateStudentIds = await getDuplicateEntries();
-                        const newStudentEntries =
-                            _.filter(students, student => !_.includes(duplicateStudentIds, student.id));
-
-                        const query = _.map(newStudentEntries, entry => ({
-                            teacherid: teacher.id,
-                            studentid: entry.id,
-                            timestamp_created: currentTs,
-                            timestamp_updated: currentTs,
-                        }));
-
-                        await db.class.bulkCreate(query, { transaction });
-                    }
-
-                    await resolveStudents()
-                        .then(resolveRegistrations)
-                        .then(async () => await transaction.commit())
-                } catch (e) {
-                    if (e) await transaction.rollback();
-                    throw new Error(e);
-                }
-            }
-
-            return resolveTeacher()
-                .then(registerStudents);
         }
 
         function response() {
             res.status(204).end();
         }
 
-        registerStudent()
+        registerStudents()
             .then(response)
             .catch((err) => {
                 res.status(400).json({ message: err.toString() });
@@ -113,21 +62,19 @@ module.exports = {
             const teachers = await db.teacher.findAll({
                 where: { email: { $in: teacherEmails }, deleted: 0 },
             });
-
             const teacherIds = _.map(_.toJSON(teachers), 'id');
-
-            const studentEntries = await db.class.findAll({
-                attributes: ['studentid'],
-                where: { teacherid: { $in: teacherIds }, deleted: 0 },
-            });
-
-            const studentIds =_.uniq(_.map(studentEntries, 'studentid'));
-
-            const commonStudents = await db.student.findAll({
+            const commonQuery = {
                 attributes: ['email'],
-                where: { id: { $in: studentIds } , deleted: 0 },
-            });
-
+                where: {
+                    deleted: 0,
+                    '$class.teacherid$': {$in: teacherIds},
+                    '$class.deleted$': 0,
+                },
+                group: ['class.studentid'],
+                include: [{attributes: [], model: db.class, as: 'class'}],
+                having: db.sequelize.literal(`count(class.studentid) >= ${teacherIds.length}`),
+            };
+            const commonStudents = await db.student.findAll(commonQuery);
             return _.map(_.toJSON(commonStudents), 'email');
         }
 
@@ -152,7 +99,6 @@ module.exports = {
                 where: { email: studentEmail, deleted: 0 },
             });
             if (!foundStudent) throw new Error('Student not found');
-            foundStudent = foundStudent.toJSON();
             if (foundStudent.suspended) throw new Error('Student already suspended');
             return foundStudent;
         }
@@ -169,7 +115,6 @@ module.exports = {
             .then(suspendStudent)
             .then(response)
             .catch((err) => {
-                console.log(err);
                 res.status(400).json({ message: err.toString() });
             });
     },
@@ -197,9 +142,10 @@ module.exports = {
             const query = {
               attributes: ['email'],
               where: {
-                  deleted: 0,
                   suspended: 0,
                   $or: [{ '$class.teacherid$': teacher.id }, { email: { $in: arrayOfEmails }}],
+                  deleted: 0,
+                  '$class.deleted$': 0,
               },
               include: [{ model: db.class, as: 'class', required: false }],
             };
@@ -216,7 +162,6 @@ module.exports = {
             .then(getNotificationStudents)
             .then(response)
             .catch((err) => {
-                console.log(err);
                 res.status(400).json({ message: err.toString() });
             });
     },
