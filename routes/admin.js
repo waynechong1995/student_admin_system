@@ -11,17 +11,19 @@ module.exports = {
         const currentTs = moment().unix();
 
         async function registerStudents() {
-            const transaction = await db.sequelize.transaction();
+            const t = await db.sequelize.transaction();
             try {
                 const resolveTeacher = () => db.teacher.findOrCreate({
                     where: {email: teacherEmail, deleted: 0},
-                    defaults: {timestamp_created: currentTs, timestamp_updated: currentTs,}
+                    defaults: {timestamp_created: currentTs, timestamp_updated: currentTs },
+                    transaction: t,
                 }).then(teacherData =>  teacherData[0]);
 
                 const resolveStudents = () => Promise.map(studentEmails, (studentEmail) => {
                     return db.student.findOrCreate({
                         where: {email: studentEmail, deleted: 0},
-                        defaults: {timestamp_created: currentTs, timestamp_updated: currentTs,}
+                        defaults: {timestamp_created: currentTs, timestamp_updated: currentTs },
+                        transaction: t,
                     }).then(studentData =>  studentData[0]);
 
                 });
@@ -33,13 +35,14 @@ module.exports = {
                 await Promise.map(students, (student) => {
                     return db.class.findOrCreate({
                         where: {teacherid: teacher.id, studentid: student.id, deleted: 0},
-                        defaults: {timestamp_created: currentTs, timestamp_updated: currentTs,}
+                        defaults: {timestamp_created: currentTs, timestamp_updated: currentTs },
+                        transaction: t,
                     });
                 });
 
-                await transaction.commit();
+                await t.commit();
             } catch (e) {
-                await transaction.rollback();
+                await t.rollback();
                 throw new Error(e);
             }
         }
